@@ -2,8 +2,9 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Когитатор MOBA — трекер боевых действий D&D</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -14,6 +15,8 @@
             height: 100vh;
             overflow: hidden;
         }
+        /* внутри Telegram высота берётся из стабильного вьюпорта Mini App */
+        body.in-telegram { height: var(--tg-vh, 100vh); }
 
         .container { max-width: 1200px; margin: 0 auto; }
 
@@ -3212,6 +3215,7 @@
                 r.setProperty('--app-accent2-hover', bankLighten(a2, 8));
             } else { ['--app-accent-hover', '--app-accent2', '--app-accent2-hover'].forEach(v => r.removeProperty(v)); }
             theme['--app-bg'] ? r.setProperty('--app-bg2', bankDarken(theme['--app-bg'], 14)) : r.removeProperty('--app-bg2');
+            syncTelegramChrome();
         }
         function themeSetColor(varName, val) { theme[varName] = val; localStorage.setItem(THEME_KEY, JSON.stringify(theme)); applyTheme(); }
         function themeApplyPreset(name) { theme = { ...(THEME_PRESETS[name] || {}) }; localStorage.setItem(THEME_KEY, JSON.stringify(theme)); applyTheme(); syncThemeInputs(); }
@@ -3634,7 +3638,33 @@
         }
 
         // ---------- Init ----------
+        // ---------- Telegram Mini App ----------
+        function tgApp() { return (window.Telegram && window.Telegram.WebApp) || null; }
+        function initTelegram() {
+            const tg = tgApp();
+            if (!tg) return; // обычный браузер — работаем как есть
+            try {
+                tg.ready();
+                tg.expand();
+                if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); // скролл трекера не закрывает приложение
+                document.body.classList.add('in-telegram');
+                syncTelegramChrome();
+                const applyVh = () => document.documentElement.style.setProperty(
+                    '--tg-vh', (tg.viewportStableHeight || tg.viewportHeight || window.innerHeight) + 'px');
+                applyVh();
+                if (tg.onEvent) tg.onEvent('viewportChanged', applyVh);
+            } catch (e) { console.warn('Telegram init:', e); }
+        }
+        // покрасить шапку/фон Telegram под текущую тему приложения
+        function syncTelegramChrome() {
+            const tg = tgApp();
+            if (!tg) return;
+            const bg = (theme && theme['--app-bg']) || THEME_DEFAULTS['--app-bg'];
+            try { if (tg.setBackgroundColor) tg.setBackgroundColor(bg); } catch (e) {}
+            try { if (tg.setHeaderColor) tg.setHeaderColor(bg); } catch (e) {}
+        }
         async function init() {
+            initTelegram();
             loadTheme();
             loadPrefs();
             bankLoad();
