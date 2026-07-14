@@ -21,7 +21,7 @@
         .container { max-width: 1200px; margin: 0 auto; }
 
         /* Split layout */
-        .app-layout { display: flex; height: 100vh; }
+        .app-layout { display: flex; height: 100%; }
         .left-panel {
             width: 55%;
             min-width: 300px;
@@ -79,6 +79,44 @@
             font-size: 15px;
             line-height: 1.8;
             padding: 20px;
+        }
+
+        /* ---------- Мобильные вкладки (нижняя панель) ---------- */
+        .mobile-tabs { display: none; }   /* на десктопе скрыто */
+        @media (max-width: 820px) {
+            .app-layout { flex-direction: column; }
+            .divider { display: none; }
+            .left-panel { width: 100%; min-width: 0; padding: 12px; }
+            .right-panel { min-width: 0; }
+            /* панели переключаются вкладками */
+            .left-panel, .right-panel { display: none; flex: 1 1 auto; min-height: 0; }
+            body.mtab-tracker .left-panel { display: block; }
+            body.mtab-sheet .right-panel { display: flex; }
+            .container { max-width: 100%; }
+            h1 { font-size: 19px; margin-bottom: 12px; }
+
+            .mobile-tabs {
+                display: flex;
+                flex-shrink: 0;
+                border-top: 1px solid #5a4a4a;
+                background: var(--app-panel, #3d3d3d);
+                padding-bottom: env(safe-area-inset-bottom, 0px);
+            }
+            .mobile-tabs .mtab {
+                flex: 1;
+                margin: 0;
+                padding: 12px 8px;
+                font-size: 14px;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                color: #cfc3c3;
+                cursor: pointer;
+            }
+            .mobile-tabs .mtab.active {
+                color: #fff;
+                background: var(--app-accent, #a85555);
+            }
         }
 
         h1 {
@@ -866,6 +904,12 @@
             <div class="drop-hint">Перетащи сюда PDF или картинку своего чарника<br>или нажми «📂 Загрузить»</div>
         </div>
         <input type="file" id="sheetFile" accept="application/pdf,image/*" style="display:none" onchange="onSheetFile(event)">
+    </div>
+
+    <!-- Мобильные вкладки: видны только на узких экранах -->
+    <div class="mobile-tabs" id="mobileTabs">
+        <button class="mtab" data-tab="tracker" onclick="setMobileTab('tracker')">🗡 Трекер</button>
+        <button class="mtab" data-tab="sheet" onclick="setMobileTab('sheet')">📄 Чарник</button>
     </div>
   </div><!-- /app-layout -->
 
@@ -3663,8 +3707,16 @@
             try { if (tg.setBackgroundColor) tg.setBackgroundColor(bg); } catch (e) {}
             try { if (tg.setHeaderColor) tg.setHeaderColor(bg); } catch (e) {}
         }
+        // ---------- Мобильные вкладки ----------
+        function setMobileTab(tab) {
+            document.body.classList.remove('mtab-tracker', 'mtab-sheet');
+            document.body.classList.add('mtab-' + tab);
+            document.querySelectorAll('#mobileTabs .mtab').forEach(b =>
+                b.classList.toggle('active', b.dataset.tab === tab));
+        }
         async function init() {
             initTelegram();
+            setMobileTab('tracker');
             loadTheme();
             loadPrefs();
             bankLoad();
