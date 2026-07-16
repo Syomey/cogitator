@@ -221,6 +221,26 @@
             100% { opacity: 0; transform: translate(-50%,-50%) scale(2.6); }
         }
         @media (prefers-reduced-motion: reduce) { .fx-emoji { animation-duration: 0.01s; } }
+        /* кликабельные элементы досье */
+        .ds-abil.clickable, .ds-skill.clickable, .ds-attack.clickable { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+        .ds-abil.clickable:hover, .ds-skill.clickable:hover, .ds-attack.clickable:hover { background: #3a3030; border-color: #a85555; }
+        .ds-abil.clickable:active, .ds-skill.clickable:active, .ds-attack.clickable:active { transform: scale(0.96); }
+        /* всплывающий результат броска */
+        .fx-roll {
+            position: absolute; top: 38%; left: 50%; transform: translate(-50%,-50%);
+            background: rgba(20,20,20,0.92); border: 1px solid #5a4a4a; border-radius: 12px;
+            padding: 14px 22px; font-size: 22px; font-weight: bold; color: #fff;
+            white-space: nowrap; box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+            animation: fxRollPop 1.3s ease-out forwards;
+        }
+        .fx-roll.roll-crit { border-color: #4a7a4a; color: #8fe08f; }
+        .fx-roll.roll-fumble { border-color: #883333; color: #ff8888; }
+        @keyframes fxRollPop {
+            0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.7); }
+            15%  { opacity: 1; transform: translate(-50%,-50%) scale(1.05); }
+            80%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%,-55%) scale(1); }
+        }
 
         h1 {
             text-align: center;
@@ -1924,8 +1944,10 @@
             document.getElementById('skillDescInput').value = skill ? (skill.desc || '') : '';
             document.getElementById('skillGroupInput').value = skill ? (skill.group || '') : '';
             // подсказки: уже используемые группы
+            // подсказки групп: дефолтные (напр. «Заклинания») + уже использованные
             const usedGroups = [...new Set(getSkills().map(s => (s.group || '').trim()).filter(Boolean))];
-            document.getElementById('skillGroupList').innerHTML = usedGroups.map(g => `<option value="${escapeHtml(g)}">`).join('');
+            const groupSuggest = [...new Set(['Заклинания', 'Способности', 'Оружие', ...usedGroups])];
+            document.getElementById('skillGroupList').innerHTML = groupSuggest.map(g => `<option value="${escapeHtml(g)}">`).join('');
             document.getElementById('skillCostBoxes').innerHTML = slotNames.map(c =>
                 `<label class="cost-check"><input type="checkbox" value="${escapeHtml(c)}" ${skill && skill.cost.includes(c) ? 'checked' : ''}> ${c}</label>`
             ).join('');
@@ -3178,16 +3200,16 @@
                 html += '</div>';
             }
             if (sh.attacks && sh.attacks.length) {
-                html += '<div class="ds-sub">⚔ Атаки</div><div class="ds-attacks">' + sh.attacks.map(a =>
-                    `<span class="ds-attack"><b>${escapeHtml(a.name)}</b>${a.mod !== '' ? ' · попад. ' + escapeHtml(a.mod) : ''}${a.dmg ? ' · ' + escapeHtml(a.dmg) : ''}</span>`).join('') + '</div>';
+                html += '<div class="ds-sub">⚔ Атаки</div><div class="ds-attacks">' + sh.attacks.map((a, i) =>
+                    `<span class="ds-attack clickable" onclick="dossierAttack(${i})" title="Клик — бросок атаки + урон"><b>${escapeHtml(a.name)}</b>${a.mod !== '' ? ' · попад. ' + escapeHtml(a.mod) : ''}${a.dmg ? ' · ' + escapeHtml(a.dmg) : ''}</span>`).join('') + '</div>';
             }
             if (sh.abilities && sh.abilities.length) {
                 html += '<details class="ds-details"><summary>Характеристики и навыки</summary>';
-                html += '<div class="ds-abils">' + sh.abilities.map(a =>
-                    `<span class="ds-abil ${a.saveProf ? 'save' : ''}" title="Спасбросок ${sgn(a.save)}${a.saveProf ? ' (владение)' : ''}">${a.label} ${a.score} <b>${sgn(a.mod)}</b></span>`).join('') + '</div>';
+                html += '<div class="ds-abils">' + sh.abilities.map((a, i) =>
+                    `<span class="ds-abil clickable ${a.saveProf ? 'save' : ''}" onclick="rollAbil(${i})" title="Клик — проверка ${a.label} (${sgn(a.mod)}); спасбросок ${sgn(a.save)}${a.saveProf ? ' (владение)' : ''}">${a.label} ${a.score} <b>${sgn(a.mod)}</b></span>`).join('') + '</div>';
                 if (sh.skills && sh.skills.length) {
-                    html += '<div class="ds-skills">' + sh.skills.map(s =>
-                        `<span class="ds-skill ${s.prof === 2 ? 'exp' : s.prof ? 'prof' : ''}" title="${s.prof === 2 ? 'компетентность' : s.prof ? 'владение' : ''}${s.name === 'Восприятие' ? ' · пассивка ' + s.passive : ''}">${escapeHtml(s.name)} <b>${sgn(s.mod)}</b></span>`).join('') + '</div>';
+                    html += '<div class="ds-skills">' + sh.skills.map((s, i) =>
+                        `<span class="ds-skill clickable ${s.prof === 2 ? 'exp' : s.prof ? 'prof' : ''}" onclick="rollSkill(${i})" title="Клик — проверка. ${s.prof === 2 ? 'компетентность' : s.prof ? 'владение' : ''}${s.name === 'Восприятие' ? ' · пассивка ' + s.passive : ''}">${escapeHtml(s.name)} <b>${sgn(s.mod)}</b></span>`).join('') + '</div>';
                 }
                 html += '</details>';
             }
@@ -4390,6 +4412,7 @@
                 type: 'roll', round: currentRound, icon: ATK_META[type].icon,
                 expr: w.name, parts: partsArr.join(' · '), crit: atk.crit, mode: atk.mode
             });
+            flashRoll(`${w.name}: атк ${atk.total}${dmg && dmg.ok ? ' · урон ' + dmg.total : ''}`, atk.crit);
             saveData();
             renderLog();
         }
@@ -4403,6 +4426,47 @@
             el.textContent = map[t];
             layer.appendChild(el);
             setTimeout(() => el.remove(), 900);
+        }
+        // всплывающий результат броска (лог может быть на другой вкладке — нужен мгновенный фидбек)
+        function flashRoll(text, crit) {
+            const layer = document.getElementById('fxLayer');
+            if (!layer) return;
+            const el = document.createElement('div');
+            el.className = 'fx-roll' + (crit === 'crit' ? ' roll-crit' : crit === 'fumble' ? ' roll-fumble' : '');
+            el.textContent = text;
+            layer.appendChild(el);
+            setTimeout(() => el.remove(), 1300);
+        }
+        // проверка/спасбросок: d20 + модификатор (с учётом преимущества/помехи роллера)
+        function rollCheck(label, mod, icon) {
+            const r = rollDice('1d20' + normBonus(String(mod)), diceMode);
+            getLog().push({ type: 'roll', round: currentRound, icon: icon || '🎯', expr: label, parts: r.parts, total: r.total, crit: r.crit, mode: r.mode });
+            flashRoll(`${label}: ${r.total}`, r.crit);
+            saveData();
+            renderLog();
+        }
+        function rollAbil(i) {
+            const sh = charSheet[activeCharacterId]; const a = sh && sh.abilities && sh.abilities[i];
+            if (a) rollCheck(a.label + ' — проверка', a.mod, '🎯');
+        }
+        function rollSkill(i) {
+            const sh = charSheet[activeCharacterId]; const s = sh && sh.skills && sh.skills[i];
+            if (s) rollCheck(s.name, s.mod, '🎯');
+        }
+        // атака прямо из досье (импортированное оружие): попадание + урон + анимация
+        function dossierAttack(i) {
+            const sh = charSheet[activeCharacterId]; const a = sh && sh.attacks && sh.attacks[i];
+            if (!a) return;
+            playAttackAnim('melee');
+            const atk = rollDice('1d20' + normBonus(String(a.mod || '')), diceMode);
+            const dmgExpr = (a.dmg || '').trim();
+            const dmg = dmgExpr ? rollDice(dmgExpr, 'normal') : null;
+            const partsArr = [`атака ${atk.parts} = ${atk.total}`];
+            if (dmg && dmg.ok) partsArr.push(`урон ${dmg.parts} = ${dmg.total}`);
+            getLog().push({ type: 'roll', round: currentRound, icon: '⚔️', expr: a.name, parts: partsArr.join(' · '), crit: atk.crit, mode: atk.mode });
+            flashRoll(`${a.name}: атк ${atk.total}${dmg && dmg.ok ? ' · урон ' + dmg.total : ''}`, atk.crit);
+            saveData();
+            renderLog();
         }
 
         // ---------- Мобильные вкладки ----------
