@@ -142,7 +142,53 @@
                 color: #fff;
                 background: var(--app-accent, #a85555);
             }
+            .dice-fab { bottom: calc(env(safe-area-inset-bottom, 0px) + 110px); }
         }
+
+        /* ---------- Дайс-роллер ---------- */
+        .dice-fab {
+            position: fixed; right: 16px; bottom: 16px;
+            width: 52px; height: 52px; border-radius: 50%;
+            font-size: 24px; padding: 0; z-index: 8;
+            background: var(--app-accent, #a85555);
+            box-shadow: 0 3px 12px rgba(0,0,0,0.45);
+        }
+        .dice-sheet { position: fixed; inset: 0; z-index: 9; display: none; }
+        .dice-sheet.open { display: block; }
+        .dice-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+        .dice-panel {
+            position: absolute; left: 0; right: 0; bottom: 0;
+            max-width: 640px; margin: 0 auto;
+            background: var(--app-panel, #3d3d3d);
+            border-top: 1px solid #5a4a4a;
+            border-radius: 14px 14px 0 0;
+            padding: 16px;
+            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+            max-height: 80vh; overflow-y: auto;
+        }
+        .dice-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .dice-head span { font-weight: bold; color: #ffcccc; font-size: 16px; }
+        .dice-head button { padding: 4px 10px; }
+        .dice-quick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .dice-quick button { flex: 1; min-width: 56px; padding: 12px 6px; font-size: 15px; }
+        .dice-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .dice-input-row input {
+            flex: 1; padding: 12px; font-size: 16px;
+            background: #2b2b2b; color: #fff; border: 1px solid #5a5a5a; border-radius: 6px;
+        }
+        .dice-input-row button { padding: 12px 18px; font-weight: 600; }
+        .dice-out {
+            display: flex; align-items: baseline; gap: 12px; padding: 12px;
+            background: #2b2b2b; border-radius: 8px;
+        }
+        .dice-out.roll-crit { background: #2a4a2a; border: 1px solid #4a7a4a; }
+        .dice-out.roll-fumble { background: #4a2a2a; border: 1px solid #883333; }
+        .dice-total { font-size: 30px; font-weight: bold; color: #ffcc88; }
+        .dice-parts { font-size: 13px; color: #bbb; word-break: break-all; }
+        .dice-err { color: #ff8888; font-size: 14px; }
+        .log-roll .log-round { color: #ffcc88; }
+        .log-roll.roll-crit { color: #8fe08f; }
+        .log-roll.roll-fumble { color: #ff8888; }
 
         h1 {
             text-align: center;
@@ -946,6 +992,29 @@
         <button class="mtab" data-page="sheet" onclick="setPage('sheet')">📄 Чарник</button>
     </div>
   </div><!-- /app-layout -->
+
+    <!-- Дайс-роллер: плавающая кнопка + выезжающая снизу панель -->
+    <button class="dice-fab" id="diceFab" onclick="toggleDice()" title="Бросить кубы">🎲</button>
+    <div class="dice-sheet" id="diceSheet">
+        <div class="dice-backdrop" onclick="toggleDice(false)"></div>
+        <div class="dice-panel">
+            <div class="dice-head"><span>🎲 Броски</span><button class="secondary" onclick="toggleDice(false)">✕</button></div>
+            <div class="dice-quick">
+                <button class="secondary" onclick="quickRoll(4)">d4</button>
+                <button class="secondary" onclick="quickRoll(6)">d6</button>
+                <button class="secondary" onclick="quickRoll(8)">d8</button>
+                <button class="secondary" onclick="quickRoll(10)">d10</button>
+                <button class="secondary" onclick="quickRoll(12)">d12</button>
+                <button class="secondary" onclick="quickRoll(20)">d20</button>
+                <button class="secondary" onclick="quickRoll(100)">d100</button>
+            </div>
+            <div class="dice-input-row">
+                <input id="diceExpr" placeholder="напр. 2d6+3, 1d20-1" onkeydown="if(event.key==='Enter')doRoll()">
+                <button onclick="doRoll()">Бросить</button>
+            </div>
+            <div class="dice-result" id="diceResult"></div>
+        </div>
+    </div>
 
     <!-- Всплывающее описание скилла -->
     <div id="skillTooltip"></div>
@@ -3033,6 +3102,10 @@
                 return;
             }
             el.innerHTML = entries.slice().reverse().map(e => {
+                if (e.type === 'roll') {
+                    const cls = e.crit === 'crit' ? 'roll-crit' : e.crit === 'fumble' ? 'roll-fumble' : '';
+                    return `<div class="log-entry log-roll ${cls}"><span class="log-round">🎲 ${escapeHtml(e.expr)}</span> ${escapeHtml(e.parts)} = <b>${e.total}</b></div>`;
+                }
                 const parts = slotNames.map(c => {
                     const a = e.actions[c] || [];
                     return `<b>${c}:</b> ${a.length ? escapeHtml(a.join(', ')) : '—'}`;
@@ -3741,6 +3814,58 @@
             try { if (tg.setBackgroundColor) tg.setBackgroundColor(bg); } catch (e) {}
             try { if (tg.setHeaderColor) tg.setHeaderColor(bg); } catch (e) {}
         }
+        // ---------- Дайс-роллер ----------
+        // Парсит выражение вида XdY±Z (можно несколько слагаемых: 2d6+1d4+3, 1d20-1).
+        function rollDice(input) {
+            const clean = (input || '').replace(/\s+/g, '').toLowerCase();
+            if (!clean) return { ok: false };
+            const terms = clean.match(/[+-]?[^+-]+/g);
+            if (!terms) return { ok: false };
+            let total = 0; const parts = []; const d20s = [];
+            for (const t of terms) {
+                let sign = 1, body = t;
+                if (body[0] === '+') body = body.slice(1);
+                else if (body[0] === '-') { sign = -1; body = body.slice(1); }
+                const m = body.match(/^(\d*)d(\d+)$/);
+                if (m) {
+                    const n = m[1] === '' ? 1 : parseInt(m[1]);
+                    const faces = parseInt(m[2]);
+                    if (!n || !faces || n > 100 || faces > 1000) return { ok: false };
+                    const rolls = [];
+                    for (let i = 0; i < n; i++) {
+                        const r = 1 + Math.floor(Math.random() * faces);
+                        rolls.push(r); total += sign * r;
+                        if (faces === 20) d20s.push(r);
+                    }
+                    parts.push((sign < 0 ? '−' : '') + n + 'd' + faces + '[' + rolls.join(',') + ']');
+                } else if (/^\d+$/.test(body)) {
+                    const v = parseInt(body); total += sign * v;
+                    parts.push((sign < 0 ? '−' : '+') + v);
+                } else return { ok: false };
+            }
+            let crit = null;
+            if (d20s.includes(20)) crit = 'crit'; else if (d20s.includes(1)) crit = 'fumble';
+            return { ok: true, total, expr: clean, parts: parts.join(' '), crit };
+        }
+        function toggleDice(force) {
+            const s = document.getElementById('diceSheet');
+            const open = force === undefined ? !s.classList.contains('open') : force;
+            s.classList.toggle('open', open);
+            if (open) setTimeout(() => { const i = document.getElementById('diceExpr'); if (i) i.focus(); }, 60);
+        }
+        function quickRoll(faces) { performRoll('1d' + faces); }
+        function doRoll() { performRoll(document.getElementById('diceExpr').value); }
+        function performRoll(input) {
+            const r = rollDice(input);
+            const out = document.getElementById('diceResult');
+            if (!r.ok) { out.innerHTML = '<span class="dice-err">Не понял выражение. Примеры: 1d20+5, 3d6, 2d8−1</span>'; return; }
+            const cls = r.crit === 'crit' ? 'roll-crit' : r.crit === 'fumble' ? 'roll-fumble' : '';
+            out.innerHTML = `<div class="dice-out ${cls}"><span class="dice-total">${r.total}</span><span class="dice-parts">${escapeHtml(r.expr)} → ${escapeHtml(r.parts)}</span></div>`;
+            getLog().push({ type: 'roll', round: currentRound, expr: r.expr, total: r.total, parts: r.parts, crit: r.crit });
+            saveData();
+            renderLog();
+        }
+
         // ---------- Мобильные вкладки ----------
         const MOBILE_PAGES = ['hod', 'skills', 'status', 'sheet'];
         function setPage(page) {
