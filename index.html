@@ -840,6 +840,26 @@
         .res-cost-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
         .res-cost-row input { width: 64px; margin: 0; padding: 6px; }
         .res-cost-row .res-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+        /* Модуль «Досье» (справка из чарника) */
+        #dossierBar { flex-direction: column; align-items: stretch; gap: 8px; }
+        .ds-combat { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .ds-stat { background: #4a4a4a; border: 1px solid #5a5a5a; border-radius: 4px; padding: 4px 9px; font-size: 13px; }
+        .ds-stat b { color: #ffcc88; }
+        .ds-insp { font-size: 12px; padding: 5px 10px; background: #5a4a4a; }
+        .ds-insp.on { background: #b89a3a; color: #1a1508; }
+        .ds-sub { font-size: 11px; color: #9a8f8f; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+        .ds-attacks { display: flex; flex-wrap: wrap; gap: 6px; }
+        .ds-attack { background: #2b2b2b; border: 1px solid #4a4444; border-radius: 6px; padding: 4px 9px; font-size: 12.5px; }
+        .ds-details { margin-top: 2px; }
+        .ds-details summary { cursor: pointer; color: #ffcccc; font-size: 13px; }
+        .ds-abils, .ds-skills { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        .ds-abil, .ds-skill { background: #2b2b2b; border: 1px solid #4a4444; border-radius: 5px; padding: 3px 8px; font-size: 12px; }
+        .ds-abil b, .ds-skill b { color: #ffcc88; }
+        .ds-abil.save { border-color: #7a8a5a; }
+        .ds-skill.prof { border-color: #6a8a6a; }
+        .ds-skill.exp { border-color: #8a7a4a; background: #33301f; }
+
         /* ============================================================
            Экран загрузки (заставка при запуске)
            ============================================================ */
@@ -933,6 +953,9 @@
 
         <!-- Ресурсы навыков (Кости Приёмов / Ци / Пси / свои) -->
         <div class="panel" id="resourceBar" data-page="skills"></div>
+
+        <!-- Досье персонажа (боевая сводка, атаки, характеристики) -->
+        <div class="panel" id="dossierBar" data-page="status"></div>
 
         <!-- Weapons (барабан) -->
         <div class="panel" id="weaponBar" data-page="skills"></div>
@@ -1110,6 +1133,8 @@
             <div class="log-empty" style="font-size:12px; margin-top:8px;">Счета персонажей и казны, операции внести/снять/перевести, история и анимации.</div>
             <label class="cost-check" style="margin-top:14px;"><input type="checkbox" id="settingResources" onchange="toggleResourcesModule(this.checked)"> Ресурсы навыков (Кости Приёмов, Ци, Пси…)</label>
             <div class="log-empty" style="font-size:12px; margin-top:8px;">Пулы, которые тратят навыки и которые восстанавливаются на отдыхе (а не каждый ход). Можно завести свои ресурсы.</div>
+            <label class="cost-check" style="margin-top:14px;"><input type="checkbox" id="settingDossier" onchange="toggleDossierModule(this.checked)"> Досье (справка из чарника)</label>
+            <div class="log-empty" style="font-size:12px; margin-top:8px;">Боевая сводка (AC/иниц/скорость), атаки, характеристики и навыки — из импорта LSS. Включается автоматически при импорте.</div>
             <label class="cost-check" style="margin-top:14px;"><input type="checkbox" id="settingSplash" onchange="toggleSplash(this.checked)"> Экран загрузки при запуске</label>
             <div class="log-empty" style="font-size:12px; margin-top:8px;">Короткая заставка при открытии трекера. Во время показа можно нажать «Пропустить».</div>
 
@@ -1121,6 +1146,12 @@
                 <button class="secondary" onclick="importDataPick()">⬇ Импорт из файла</button>
             </div>
             <input type="file" id="importFile" accept="application/json,.json" style="display:none" onchange="importData(event)">
+            <div class="log-empty" style="font-size:12px; margin:14px 0 8px;">Отдельный персонаж: выгрузить в файл (наш формат) или импортировать из LSS (ttg.club) либо нашего формата — с экраном подтверждения.</div>
+            <div class="modal-buttons">
+                <button onclick="exportCharacter()">⬆ Экспорт персонажа</button>
+                <button class="secondary" onclick="importCharacterPick()">⬇ Импорт персонажа</button>
+            </div>
+            <input type="file" id="importCharFile" accept="application/json,.json" style="display:none" onchange="importCharacterFile(event)">
 
             <hr class="settings-sep">
             <h2 style="font-size:18px;">🎨 Оформление</h2>
@@ -1149,6 +1180,11 @@
 
     <!-- Тосты банка -->
     <div id="bankToasts"></div>
+
+    <!-- Import Character Modal (предпросмотр) -->
+    <div id="importModal" class="modal">
+        <div class="modal-content" id="importModalBody"></div>
+    </div>
 
     <!-- Resource Manager Modal -->
     <div id="resourceModal" class="modal">
@@ -1323,6 +1359,7 @@
         let resourceDefs = [];       // [{id, name, short, color, restore:'short'|'long'}] — глобальные типы ресурсов навыков
         let resourceMax = {};        // {charId: {resId: максимум}}
         let resourceCur = {};        // {charId: {resId: текущее}}
+        let charSheet = {};          // {charId: {combat, attacks, abilities, skills, inspiration}} — досье из чарника
         // rechargeType: 'none' (at-will) | 'rounds' | 'short' | 'long'
         // restore ресурса: 'short' (возвращается на коротком И длинном отдыхе) | 'long' (только на длинном)
         const DEFAULT_RESOURCES = [
@@ -1366,6 +1403,7 @@
                 resourceDefs = d.resourceDefs || [];
                 resourceMax = d.resourceMax || {};
                 resourceCur = d.resourceCur || {};
+                charSheet = d.charSheet || {};
               } catch (e) {
                 console.error('Не удалось прочитать сохранение kogitator_moba_data:', e);
                 alert('Не удалось прочитать сохранённые данные (файл повреждён). Загружен пустой профиль, но старая запись НЕ стёрта — можно восстановить вручную.');
@@ -1418,7 +1456,7 @@
                 actionOptions, turnActions, tempAdjustments,
                 concentration, conditions, exhaustion, combatLog, presets,
                 skills, skillCasts, skillCharges, skillTimers, hitDice, hp, tempHp,
-                weapons, bulletTypes, resourceDefs, resourceMax, resourceCur
+                weapons, bulletTypes, resourceDefs, resourceMax, resourceCur, charSheet
             }));
         }
 
@@ -2067,17 +2105,20 @@
         let showWeapons = false;    // модуль оружия скрыт по умолчанию
         let showBank = false;       // модуль банка скрыт по умолчанию
         let showResources = false;  // модуль ресурсов навыков скрыт по умолчанию
+        let showDossier = false;    // модуль «Досье» (справка из чарника) скрыт по умолчанию
 
         // --- Настройки модулей ---
         function loadPrefs() {
             showWeapons = localStorage.getItem('kogitator_moba_show_weapons') === '1';
             showBank = localStorage.getItem('kogitator_moba_show_bank') === '1';
             showResources = localStorage.getItem('kogitator_moba_show_resources') === '1';
+            showDossier = localStorage.getItem('kogitator_moba_show_dossier') === '1';
         }
         function openSettings() {
             document.getElementById('settingWeapons').checked = showWeapons;
             document.getElementById('settingBank').checked = showBank;
             document.getElementById('settingResources').checked = showResources;
+            document.getElementById('settingDossier').checked = showDossier;
             document.getElementById('settingSplash').checked = localStorage.getItem('kogitator_moba_splash') !== '0';
             renderThemePresets();
             syncThemeInputs();
@@ -2092,6 +2133,11 @@
         function toggleBankModule(on) {
             showBank = on;
             localStorage.setItem('kogitator_moba_show_bank', on ? '1' : '0');
+            render();
+        }
+        function toggleDossierModule(on) {
+            showDossier = on;
+            localStorage.setItem('kogitator_moba_show_dossier', on ? '1' : '0');
             render();
         }
         function toggleResourcesModule(on) {
@@ -3048,6 +3094,55 @@
             saveData(); renderResources(); renderResourceManager();
         }
 
+        // ---------- Досье персонажа (справка из чарника) ----------
+        function renderDossier() {
+            const el = document.getElementById('dossierBar');
+            el.style.display = showDossier ? '' : 'none';
+            if (!showDossier) { el.innerHTML = ''; return; }
+            const sh = charSheet[activeCharacterId];
+            let html = '<div class="panel-row" style="justify-content:space-between; align-items:center;">' +
+                '<span class="panel-title">📋 Досье</span></div>';
+            if (!sh || (!sh.combat && !(sh.attacks && sh.attacks.length) && !(sh.abilities && sh.abilities.length))) {
+                html += '<div class="log-empty">Нет данных. Импортируй персонажа из LSS (⚙ Модули → Данные) — боевая сводка, атаки и характеристики появятся здесь.</div>';
+                el.innerHTML = html;
+                return;
+            }
+            if (sh.combat || sh.inspiration !== undefined) {
+                const c = sh.combat;
+                html += '<div class="ds-combat">';
+                if (c) {
+                    html += `<span class="ds-stat" title="Класс Доспеха">🛡 <b>${c.ac}</b> AC</span>`
+                        + `<span class="ds-stat" title="Инициатива">⚡ <b>${sgn(c.initiative)}</b> иниц</span>`
+                        + `<span class="ds-stat" title="Скорость">👣 <b>${c.speed}</b> фт</span>`
+                        + `<span class="ds-stat" title="Пассивная Внимательность">👁 <b>${c.passive}</b></span>`
+                        + `<span class="ds-stat" title="Бонус мастерства">🎯 <b>${sgn(c.pb)}</b></span>`;
+                }
+                html += `<button class="ds-insp ${sh.inspiration ? 'on' : ''}" onclick="toggleInspiration()" title="Вдохновение">⭐ Вдохновение</button>`;
+                html += '</div>';
+            }
+            if (sh.attacks && sh.attacks.length) {
+                html += '<div class="ds-sub">⚔ Атаки</div><div class="ds-attacks">' + sh.attacks.map(a =>
+                    `<span class="ds-attack"><b>${escapeHtml(a.name)}</b>${a.mod !== '' ? ' · попад. ' + escapeHtml(a.mod) : ''}${a.dmg ? ' · ' + escapeHtml(a.dmg) : ''}</span>`).join('') + '</div>';
+            }
+            if (sh.abilities && sh.abilities.length) {
+                html += '<details class="ds-details"><summary>Характеристики и навыки</summary>';
+                html += '<div class="ds-abils">' + sh.abilities.map(a =>
+                    `<span class="ds-abil ${a.saveProf ? 'save' : ''}" title="Спасбросок ${sgn(a.save)}${a.saveProf ? ' (владение)' : ''}">${a.label} ${a.score} <b>${sgn(a.mod)}</b></span>`).join('') + '</div>';
+                if (sh.skills && sh.skills.length) {
+                    html += '<div class="ds-skills">' + sh.skills.map(s =>
+                        `<span class="ds-skill ${s.prof === 2 ? 'exp' : s.prof ? 'prof' : ''}" title="${s.prof === 2 ? 'компетентность' : s.prof ? 'владение' : ''}${s.name === 'Восприятие' ? ' · пассивка ' + s.passive : ''}">${escapeHtml(s.name)} <b>${sgn(s.mod)}</b></span>`).join('') + '</div>';
+                }
+                html += '</details>';
+            }
+            el.innerHTML = html;
+        }
+        function toggleInspiration() {
+            const id = activeCharacterId;
+            if (!charSheet[id]) charSheet[id] = {};
+            charSheet[id].inspiration = !charSheet[id].inspiration;
+            saveData(); renderDossier();
+        }
+
         function renderHp() {
             const cur = getHp();
             const max = getHpMax();
@@ -3151,6 +3246,7 @@
 
             renderSkills();
             renderResources();
+            renderDossier();
             renderWeapons();
             renderBank();
             renderHp();
@@ -3802,6 +3898,320 @@
                 setTimeout(() => location.reload(), 800);
             } catch (err) { bankToast('Ошибка импорта данных', 'err'); }
         }
+
+        // ============================================================
+        //  Импорт/экспорт отдельного персонажа (формат LSS ttg.club и наш)
+        // ============================================================
+        let pendingImport = null;
+
+        function cyrCount(s) { return (s.match(/[а-яёА-ЯЁ]/g) || []).length; }
+        // Починка mojibake (UTF-8, прочитанного как Latin-1). Безопасна для корректных строк: escape() на
+        // символах >255 даёт %uXXXX, decodeURIComponent на них бросает → возвращаем исходник.
+        function fixMojibake(s) {
+            if (typeof s !== 'string' || !/[À-ÿ]/.test(s)) return s;
+            try {
+                const rep = decodeURIComponent(escape(s));
+                if (rep.indexOf('�') === -1 && cyrCount(rep) > cyrCount(s)) return rep;
+            } catch (e) {}
+            return s;
+        }
+        function tiptapText(node) {
+            if (!node) return '';
+            if (node.type === 'text') return node.text || '';
+            return (node.content || []).map(tiptapText).join('');
+        }
+        // Черта = абзац TipTap, начинающийся с жирного названия
+        function extractFeatures(doc) {
+            const out = [];
+            if (!doc || !Array.isArray(doc.content)) return out;
+            doc.content.forEach(p => {
+                const nodes = (p.content || []);
+                if (!nodes.length) return;
+                const isBold = n => n.marks && n.marks.some(m => m.type === 'bold');
+                if (!isBold(nodes[0])) return;
+                let name = '', i = 0;
+                while (i < nodes.length && isBold(nodes[i])) { name += (nodes[i].text || ''); i++; }
+                const desc = nodes.slice(i).map(n => n.text || '').join('').trim();
+                name = name.trim().replace(/[.:\s]+$/, '');
+                if (name) out.push({ name, desc });
+            });
+            return out;
+        }
+        function lssNum(v) { const n = parseFloat(v); return isFinite(n) ? n : 0; }
+        const SHEET_ABILS = [['str', 'Сил'], ['dex', 'Лов'], ['con', 'Тел'], ['int', 'Инт'], ['wis', 'Мдр'], ['cha', 'Хар']];
+        function abilityMod(score) { return Math.floor((Number(score || 10) - 10) / 2); }
+        function sgn(n) { return (n >= 0 ? '+' : '') + n; }
+        // Боевая сводка + атаки + характеристики/навыки из LSS. Модификаторы считаем сами
+        // (в LSS-экспорте поле modifier местами битое), владения/компетентность — из isProf.
+        function parseSheet(inner) {
+            const V = inner.vitality || {}, S = inner.stats || {}, SV = inner.saves || {}, SK = inner.skills || {};
+            const pb = Number(inner.proficiencyCustom || inner.proficiency || 2) || 2;
+            const g = (o, k) => (o && o[k] && o[k].value !== undefined) ? o[k].value : undefined;
+            const abilities = SHEET_ABILS.map(([k, label]) => {
+                const score = S[k] ? Number(S[k].score) : 10;
+                const mod = abilityMod(score);
+                const saveProf = !!(SV[k] && SV[k].isProf);
+                return { k, label, score, mod, save: mod + (saveProf ? pb : 0), saveProf };
+            });
+            const modOf = k => (abilities.find(a => a.k === k) || { mod: 0 }).mod;
+            const skills = Object.keys(SK).map(key => {
+                const s = SK[key], base = s.baseStat || 'str', prof = Number(s.isProf) || 0;
+                const mod = modOf(base) + (prof === 2 ? 2 * pb : prof === 1 ? pb : 0);
+                const passive = s.customPassive !== undefined ? Number(s.customPassive) : (10 + mod);
+                return { name: s.label || key, base, prof, mod, passive };
+            }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+            const attacks = (inner.weaponsList || []).map(w => ({
+                name: (w.name && w.name.value) || 'Атака',
+                mod: (w.mod && w.mod.value !== undefined) ? String(w.mod.value) : '',
+                dmg: (w.dmg && w.dmg.value) || '', ability: w.ability || ''
+            }));
+            const combat = {
+                ac: lssNum(g(V, 'ac')), initiative: lssNum(g(V, 'initiative')), speed: lssNum(g(V, 'speed')), pb,
+                passive: (SK.perception && SK.perception.customPassive !== undefined)
+                    ? Number(SK.perception.customPassive)
+                    : 10 + (modOf((SK.perception && SK.perception.baseStat) || 'wis') + ((SK.perception && Number(SK.perception.isProf)) ? pb : 0))
+            };
+            return { combat, attacks, abilities, skills, inspiration: !!inner.inspiration };
+        }
+        // Ячейки заклинаний из LSS: spells['slots-N'] = {value: максимум, filled: потрачено}
+        function parseSpellSlots(inner) {
+            const sp = inner.spells || {}, out = [];
+            Object.keys(sp).forEach(k => {
+                const m = /^slots-(\d)$/.exec(k); if (!m) return;
+                const v = sp[k] || {}, max = Number(v.value) || 0;
+                if (max <= 0) return;
+                out.push({ level: +m[1], max, cur: Math.max(0, max - (Number(v.filled) || 0)) });
+            });
+            return out.sort((a, b) => a.level - b.level);
+        }
+        function normalizeLSS(inner) {
+            const V = inner.vitality || {}, C = inner.coins || {}, I = inner.info || {};
+            const g = (o, k) => (o && o[k] && o[k].value !== undefined) ? o[k].value : undefined;
+            const doc = (o, k) => (inner.text && inner.text[k] && inner.text[k].value) ? inner.text[k].value.data : null;
+            const feats = extractFeatures(doc(inner, 'traits')).concat(extractFeatures(doc(inner, 'prof')));
+            return {
+                name: (inner.name && inner.name.value) || 'Без имени',
+                hpMax: lssNum(g(V, 'hp-max')), hp: lssNum(g(V, 'hp-current')), tempHp: lssNum(g(V, 'hp-temp')),
+                hitDiceCur: lssNum(g(V, 'hp-dice-current')),
+                level: (I.level && typeof I.level.value === 'number') ? I.level.value : null,
+                cls: (I.charClass && I.charClass.value) || '', background: (I.background && I.background.value) || '',
+                conditions: Array.isArray(inner.conditions) ? inner.conditions : [],
+                coins: { pp: lssNum(g(C, 'pp')), gp: lssNum(g(C, 'gp')), ep: lssNum(g(C, 'ep')), sp: lssNum(g(C, 'sp')), cp: lssNum(g(C, 'cp')) },
+                features: feats,
+                sheet: parseSheet(inner),
+                spellSlots: parseSpellSlots(inner)
+            };
+        }
+        function parseImportText(text) {
+            let outer;
+            try { outer = JSON.parse(text); } catch (e) { return null; }
+            if (outer && outer.meta && outer.meta.app === 'kogitator_moba' && outer.meta.kind === 'character') {
+                return { format: 'Когитатор', payload: outer };
+            }
+            if (outer && outer.jsonType === 'character' && typeof outer.data === 'string') {
+                try { return { format: 'LSS', payload: normalizeLSS(JSON.parse(fixMojibake(outer.data))) }; } catch (e) { return null; }
+            }
+            return null;
+        }
+
+        function importCharacterPick() { document.getElementById('importCharFile').click(); }
+        async function importCharacterFile(e) {
+            const file = e.target.files[0]; e.target.value = '';
+            if (!file) return;
+            const parsed = parseImportText(await file.text());
+            if (!parsed) { bankToast('Не распознан как персонаж (LSS или наш формат)', 'err'); return; }
+            pendingImport = parsed;
+            renderImportPreview();
+            document.getElementById('importModal').classList.add('active');
+        }
+        function coinsSummary(coins) {
+            return COINS.filter(c => coins[c.k] > 0).map(c => coins[c.k] + ' ' + c.short).join(', ') || 'нет';
+        }
+        function renderImportPreview() {
+            const body = document.getElementById('importModalBody');
+            const cur = getCurrentCharacter();
+            if (pendingImport.format === 'Когитатор') {
+                const p = pendingImport.payload;
+                body.innerHTML = `
+                    <h2>Импорт персонажа <span style="font-size:12px;color:#9a8f8f">(наш формат)</span></h2>
+                    <label>Имя</label>
+                    <input type="text" id="impName" value="${escapeHtml((p.character && p.character.name) || 'Без имени')}">
+                    <div class="log-empty" style="font-size:12px; margin-top:8px;">Полный персонаж со всем состоянием (навыки, ресурсы, оружие, иконки). Будет добавлен как новый.</div>
+                    <div class="modal-buttons" style="margin-top:15px;">
+                        <button class="secondary" onclick="closeImportModal()">Отмена</button>
+                        <button onclick="applyImport()">Импортировать</button>
+                    </div>`;
+                return;
+            }
+            const p = pendingImport.payload;
+            const featHtml = p.features.length
+                ? `<label>Черты как навыки (заготовки, стоимость «своб.»)</label>
+                   <div id="impFeats">${p.features.map((f, i) =>
+                        `<label class="cost-check"><input type="checkbox" data-feat="${i}"> ${escapeHtml(f.name)}</label>`).join('')}</div>`
+                : '';
+            body.innerHTML = `
+                <h2>Импорт персонажа <span style="font-size:12px;color:#9a8f8f">(LSS)</span></h2>
+                <label>Имя</label>
+                <input type="text" id="impName" value="${escapeHtml(p.name)}">
+                ${p.cls ? `<div class="log-empty" style="font-size:12px; margin-top:8px;">Класс/предыстория: ${escapeHtml(p.cls)}${p.background ? ' · ' + escapeHtml(p.background) : ''} — у нас нет таких полей, не переносится. Характеристики, КБ, скорость, владения — тоже.</div>` : ''}
+                <label>Что перенести</label>
+                <label class="cost-check"><input type="checkbox" id="impHP" checked> Хиты: ${p.hp}/${p.hpMax}, врем. ${p.tempHp}, кости хитов ${p.hitDiceCur}</label>
+                <label class="cost-check"><input type="checkbox" id="impCond" ${p.conditions.length ? 'checked' : ''}> Состояния (${p.conditions.length})</label>
+                <label class="cost-check"><input type="checkbox" id="impCoins" ${(p.coins.pp + p.coins.gp + p.coins.ep + p.coins.sp + p.coins.cp) > 0 ? 'checked' : ''}> Монеты → новый счёт в банке (${coinsSummary(p.coins)})</label>
+                ${p.sheet ? `
+                <label class="cost-check"><input type="checkbox" id="impCombat" checked> Боевая сводка (AC ${p.sheet.combat.ac}, иниц ${sgn(p.sheet.combat.initiative)}, скор ${p.sheet.combat.speed})</label>
+                <label class="cost-check"><input type="checkbox" id="impAttacks" ${p.sheet.attacks.length ? 'checked' : ''}> Атаки (${p.sheet.attacks.length})</label>
+                <label class="cost-check"><input type="checkbox" id="impStats" checked> Характеристики и навыки (${p.sheet.skills.length})</label>` : ''}
+                ${p.spellSlots && p.spellSlots.length ? `<label class="cost-check"><input type="checkbox" id="impSlots" checked> Ячейки заклинаний → ресурсы (${p.spellSlots.map(s => s.level + ' кр. ' + s.cur + '/' + s.max).join(', ')})</label>` : ''}
+                ${featHtml}
+                <label>Куда</label>
+                <select id="impTarget">
+                    <option value="new">Новый персонаж</option>
+                    <option value="over">Поверх текущего (${escapeHtml(cur.name)})</option>
+                </select>
+                <div class="modal-buttons" style="margin-top:15px;">
+                    <button class="secondary" onclick="closeImportModal()">Отмена</button>
+                    <button onclick="applyImport()">Импортировать</button>
+                </div>`;
+        }
+        function closeImportModal() { document.getElementById('importModal').classList.remove('active'); pendingImport = null; }
+
+        function ensureCharState(id) {
+            if (!turnActions[id]) { turnActions[id] = {}; slotNames.forEach(c => turnActions[id][c] = []); }
+            if (!concentration[id]) concentration[id] = { active: false, spell: '' };
+            if (!conditions[id]) conditions[id] = [];
+            if (exhaustion[id] === undefined) exhaustion[id] = 0;
+            if (!combatLog[id]) combatLog[id] = [];
+            if (!presets[id]) presets[id] = [];
+            if (!skills[id]) skills[id] = [];
+            if (!skillCasts[id]) skillCasts[id] = [];
+            if (!skillCharges[id]) skillCharges[id] = {};
+            if (!skillTimers[id]) skillTimers[id] = {};
+            if (!weapons[id]) weapons[id] = [];
+            if (!bulletTypes[id]) bulletTypes[id] = [];
+            if (!resourceMax[id]) resourceMax[id] = {};
+            if (!resourceCur[id]) resourceCur[id] = {};
+        }
+        function newCharId() { return characters.reduce((m, c) => Math.max(m, c.id), -1) + 1; }
+
+        async function applyImport() {
+            if (!pendingImport) return;
+            if (pendingImport.format === 'Когитатор') {
+                const P = pendingImport.payload;
+                const id = newCharId();
+                const nm = (document.getElementById('impName').value || '').trim() || (P.character && P.character.name) || 'Без имени';
+                const ch = Object.assign({ moves: 1, actions: 1, hd: 1, hpMax: 10 }, P.character || {}, { id, name: nm });
+                characters.push(ch);
+                const s = P.state || {};
+                hp[id] = s.hp; tempHp[id] = s.tempHp || 0; hitDice[id] = s.hitDice || 0; exhaustion[id] = s.exhaustion || 0;
+                skills[id] = s.skills || []; skillCharges[id] = s.skillCharges || {}; skillTimers[id] = s.skillTimers || {};
+                conditions[id] = s.conditions || []; presets[id] = s.presets || []; concentration[id] = s.concentration || { active: false, spell: '' };
+                weapons[id] = s.weapons || []; bulletTypes[id] = s.bulletTypes || [];
+                resourceMax[id] = s.resourceMax || {}; resourceCur[id] = s.resourceCur || {};
+                if (s.sheet) { charSheet[id] = s.sheet; if (!showDossier) { showDossier = true; localStorage.setItem('kogitator_moba_show_dossier', '1'); } }
+                turnActions[id] = {}; slotNames.forEach(c => turnActions[id][c] = []);
+                combatLog[id] = []; skillCasts[id] = [];
+                for (const ic of (P.icons || [])) { if (ic.data) await iconPut(`${id}_${ic.skillId}`, { blob: dataURLToBlob(ic.data) }); }
+                activeCharacterId = id;
+                saveData(); render(); renderSheet();
+                closeImportModal();
+                bankToast('Персонаж «' + nm + '» импортирован', 'ok');
+                return;
+            }
+            // --- LSS ---
+            const p = pendingImport.payload;
+            const overwrite = document.getElementById('impTarget').value === 'over';
+            const impHP = document.getElementById('impHP').checked;
+            const impCond = document.getElementById('impCond').checked;
+            const impCoins = document.getElementById('impCoins').checked;
+            const chk = elId => { const e = document.getElementById(elId); return e ? e.checked : false; };
+            const impCombat = chk('impCombat'), impAttacks = chk('impAttacks'), impStats = chk('impStats'), impSlots = chk('impSlots');
+            const featIdx = [...document.querySelectorAll('#impFeats input[data-feat]:checked')].map(cb => +cb.getAttribute('data-feat'));
+            const nm = (document.getElementById('impName').value || '').trim() || p.name;
+
+            let id, char;
+            if (overwrite) { char = getCurrentCharacter(); id = char.id; char.name = nm; }
+            else { id = newCharId(); char = { id, name: nm, moves: 1, actions: 1, hd: 1, hpMax: 10 }; characters.push(char); }
+            ensureCharState(id);
+
+            if (impHP) {
+                if (p.hpMax) char.hpMax = p.hpMax;
+                if (typeof p.level === 'number' && p.level > 0) char.hd = p.level;
+                hp[id] = p.hp; tempHp[id] = p.tempHp; hitDice[id] = p.hitDiceCur;
+            }
+            if (impCond) conditions[id] = p.conditions.slice();
+            if (featIdx.length) {
+                let nid = (skills[id] || []).reduce((m, s) => Math.max(m, s.id), -1) + 1;
+                featIdx.forEach(fi => {
+                    const f = p.features[fi]; if (!f) return;
+                    skills[id].push({ id: nid, name: f.name, desc: f.desc || '', cost: [], resCost: {}, hasIcon: false, maxCharges: 0, rechargeType: 'none', rechargeRounds: 0, effects: [] });
+                    nid++;
+                });
+            }
+            if (impCoins && (p.coins.pp + p.coins.gp + p.coins.ep + p.coins.sp + p.coins.cp) > 0) {
+                bankState.accounts.push({ id: bankUid(), name: nm, coins: { pp: p.coins.pp, gp: p.coins.gp, ep: p.coins.ep, sp: p.coins.sp, cp: p.coins.cp }, history: [] });
+                bankSave();
+            }
+            // Досье: боевая сводка / атаки / характеристики
+            if (p.sheet && (impCombat || impAttacks || impStats)) {
+                const sh = charSheet[id] || {};
+                if (impCombat) { sh.combat = p.sheet.combat; sh.inspiration = p.sheet.inspiration; }
+                if (impAttacks) sh.attacks = p.sheet.attacks;
+                if (impStats) { sh.abilities = p.sheet.abilities; sh.skills = p.sheet.skills; }
+                charSheet[id] = sh;
+                if (!showDossier) { showDossier = true; localStorage.setItem('kogitator_moba_show_dossier', '1'); }
+            }
+            // Ячейки заклинаний → ресурсы (общие типы «Ячейки N круга», восстановление на длинном отдыхе)
+            if (impSlots && p.spellSlots && p.spellSlots.length) {
+                const slotColors = { 1: '#7fae5a', 2: '#5aae9e', 3: '#5a8fae', 4: '#6a6ace', 5: '#9a5aae', 6: '#c05a9e', 7: '#c05a5a', 8: '#c0905a', 9: '#b0b0b0' };
+                resourceMax[id] = resourceMax[id] || {}; resourceCur[id] = resourceCur[id] || {};
+                p.spellSlots.forEach(sl => {
+                    const rid = 'slot' + sl.level;
+                    if (!resourceDefs.some(r => r.id === rid)) {
+                        resourceDefs.push({ id: rid, name: 'Ячейки ' + sl.level + ' круга', short: 'Яч' + sl.level, color: slotColors[sl.level] || '#8a8a8a', restore: 'long' });
+                    }
+                    resourceMax[id][rid] = sl.max; resourceCur[id][rid] = sl.cur;
+                });
+                if (!showResources) { showResources = true; localStorage.setItem('kogitator_moba_show_resources', '1'); }
+            }
+            activeCharacterId = id;
+            saveData(); render(); renderSheet();
+            closeImportModal();
+            bankToast('Персонаж «' + nm + '» импортирован из LSS', 'ok');
+        }
+
+        async function exportCharacter() {
+            const id = activeCharacterId, ch = getCurrentCharacter();
+            if (!ch) return;
+            const state = {
+                hp: getHp(), tempHp: getTempHp(), hitDice: getHitDice(), exhaustion: getExhaustion(),
+                skills: skills[id] || [], skillCharges: skillCharges[id] || {}, skillTimers: skillTimers[id] || {},
+                conditions: conditions[id] || [], presets: presets[id] || [], concentration: concentration[id] || { active: false, spell: '' },
+                weapons: weapons[id] || [], bulletTypes: bulletTypes[id] || [],
+                resourceMax: resourceMax[id] || {}, resourceCur: resourceCur[id] || {},
+                sheet: charSheet[id] || null
+            };
+            const icons = [];
+            for (const s of (skills[id] || [])) {
+                if (!s.hasIcon) continue;
+                const rec = await iconGet(`${id}_${s.id}`);
+                if (rec && rec.blob) icons.push({ skillId: s.id, data: await blobToDataURL(rec.blob) });
+            }
+            const payload = {
+                meta: { app: 'kogitator_moba', kind: 'character', version: 1, exported: new Date().toISOString() },
+                character: { name: ch.name, moves: ch.moves, actions: ch.actions, hd: ch.hd, hpMax: ch.hpMax },
+                state, icons
+            };
+            const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const safe = (ch.name || 'персонаж').replace(/[\\/:*?"<>|]/g, '_');
+            const a = document.createElement('a');
+            a.href = url; a.download = 'персонаж-' + safe + '.json';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            bankToast('Персонаж «' + ch.name + '» выгружен', 'ok');
+        }
+        document.getElementById('importModal') && document.getElementById('importModal').addEventListener('click', e => { if (e.target.id === 'importModal') closeImportModal(); });
 
         // ---------- Init ----------
         // ---------- Telegram Mini App ----------
