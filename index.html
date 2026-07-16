@@ -199,6 +199,29 @@
         .log-roll.roll-crit { color: #8fe08f; }
         .log-roll.roll-fumble { color: #ff8888; }
 
+        /* ---------- Боевые анимации ---------- */
+        .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 200; overflow: hidden; }
+        .fx-emoji { position: absolute; top: 42%; left: 50%; font-size: 96px; will-change: transform, opacity; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5)); }
+        .fx-melee { animation: fxMelee 0.6s ease-out forwards; }
+        .fx-ranged { left: 8%; animation: fxRanged 0.7s ease-in forwards; }
+        .fx-spell { animation: fxSpell 0.8s ease-out forwards; }
+        @keyframes fxMelee {
+            0%   { opacity: 0; transform: translate(-50%,-50%) rotate(-55deg) scale(0.4); }
+            25%  { opacity: 1; }
+            100% { opacity: 0; transform: translate(-50%,-50%) rotate(40deg) scale(1.7); }
+        }
+        @keyframes fxRanged {
+            0%   { opacity: 0; left: 4%;  transform: translate(-50%,-50%) scale(0.9); }
+            20%  { opacity: 1; }
+            100% { opacity: 0; left: 96%; transform: translate(-50%,-50%) scale(1.2); }
+        }
+        @keyframes fxSpell {
+            0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.2); }
+            30%  { opacity: 1; }
+            100% { opacity: 0; transform: translate(-50%,-50%) scale(2.6); }
+        }
+        @media (prefers-reduced-motion: reduce) { .fx-emoji { animation-duration: 0.01s; } }
+
         h1 {
             text-align: center;
             color: #ffcccc;
@@ -434,6 +457,8 @@
         .weapon-lastshot { font-size: 11px; color: #cce; text-align: center; line-height: 1.3; }
         .weapon-actions { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
         .weapon-actions button { padding: 6px 10px; font-size: 13px; }
+        .weapon-melee-icon { font-size: 46px; text-align: center; padding: 14px 0 6px; }
+        .weapon-dmg { font-size: 12px; color: #ffcc88; text-align: center; margin-top: 4px; }
 
         /* Визуал барабана */
         .drum {
@@ -1025,6 +1050,9 @@
     </div>
   </div><!-- /app-layout -->
 
+    <!-- Слой боевых анимаций (удар/выстрел/каст) -->
+    <div class="fx-layer" id="fxLayer" aria-hidden="true"></div>
+
     <!-- Дайс-роллер: плавающая кнопка + выезжающая снизу панель -->
     <button class="dice-fab" id="diceFab" onclick="toggleDice()" title="Бросить кубы">🎲</button>
     <div class="dice-sheet" id="diceSheet">
@@ -1213,11 +1241,22 @@
                 <option value="drum">Барабанный (с кручением)</option>
                 <option value="magazine">Магазин / Лента (без кручения)</option>
                 <option value="manual">Ручной (по одному патрону)</option>
+                <option value="melee">Без патронов (рукопашное / каст)</option>
             </select>
             <label>Ёмкость (число ячеек):</label>
             <input type="number" id="weaponChambersInput" min="1" value="6">
             <label>Длина очереди (для магазина):</label>
             <input type="number" id="weaponBurstInput" min="1" value="3">
+            <label>Тип атаки (бросок и анимация):</label>
+            <select id="weaponAtkType">
+                <option value="melee">⚔️ Рукопашная</option>
+                <option value="ranged">🏹 Дальнобойная</option>
+                <option value="spell">🔥 Каст</option>
+            </select>
+            <label>Урон (дайс, напр. 1d8+3 — пусто = без броска урона):</label>
+            <input type="text" id="weaponDamageInput" placeholder="1d8+3">
+            <label>Бонус атаки (к d20, напр. +5):</label>
+            <input type="text" id="weaponAtkBonusInput" placeholder="+5">
             <div class="modal-buttons">
                 <button onclick="closeWeaponEditor()" class="secondary">Отмена</button>
                 <button onclick="saveWeapon()">Сохранить</button>
@@ -2162,6 +2201,9 @@
             document.getElementById('weaponFeedType').value = w ? (w.feedType || 'drum') : 'drum';
             document.getElementById('weaponChambersInput').value = w ? w.chambers : 6;
             document.getElementById('weaponBurstInput').value = w ? (w.burst || 3) : 3;
+            document.getElementById('weaponAtkType').value = w ? (w.atkType || 'melee') : 'melee';
+            document.getElementById('weaponDamageInput').value = w ? (w.damage || '') : '';
+            document.getElementById('weaponAtkBonusInput').value = w ? (w.atkBonus || '') : '';
             document.getElementById('weaponDeleteBtn').style.display = isNew ? 'none' : 'block';
             document.getElementById('weaponModal').classList.add('active');
         }
@@ -2169,17 +2211,24 @@
         function saveWeapon() {
             const name = document.getElementById('weaponNameInput').value.trim() || 'Оружие';
             const feedType = document.getElementById('weaponFeedType').value;
-            const chambers = Math.max(1, parseInt(document.getElementById('weaponChambersInput').value) || 1);
+            const isMelee = feedType === 'melee';
+            const chambers = isMelee ? 0 : Math.max(1, parseInt(document.getElementById('weaponChambersInput').value) || 1);
             const burst = Math.max(1, parseInt(document.getElementById('weaponBurstInput').value) || 1);
+            const atkType = document.getElementById('weaponAtkType').value;
+            const damage = document.getElementById('weaponDamageInput').value.trim();
+            const atkBonus = document.getElementById('weaponAtkBonusInput').value.trim();
             if (editingWeaponId === null) {
                 const id = getWeapons().reduce((m, w) => Math.max(m, w.id), -1) + 1;
-                getWeapons().push({ id, name, feedType, chambers, burst, cells: new Array(chambers).fill(null), currentIndex: 0, lastShot: '' });
+                getWeapons().push({ id, name, feedType, chambers, burst, atkType, damage, atkBonus, cells: new Array(chambers).fill(null), currentIndex: 0, lastShot: '' });
             } else {
                 const w = getWeapons().find(x => x.id === editingWeaponId);
                 if (w) {
                     w.name = name;
                     w.feedType = feedType;
                     w.burst = burst;
+                    w.atkType = atkType;
+                    w.damage = damage;
+                    w.atkBonus = atkBonus;
                     // изменить число ячеек, сохранив существующие патроны
                     const old = w.cells || [];
                     const next = new Array(chambers).fill(null);
@@ -2522,18 +2571,26 @@
             }
             html += '<div class="weapons-grid">';
             html += list.map(w => {
-                const loaded = w.cells.filter(c => c != null).length;
+                const isMelee = w.feedType === 'melee';
+                const atkIcon = ({ melee: '⚔️', ranged: '🏹', spell: '🔥' })[w.atkType] || '⚔️';
+                const hasDmg = !!(w.damage && w.damage.trim());
+                const canAttack = hasDmg || isMelee;
+                const loaded = (w.cells || []).filter(c => c != null).length;
                 return `<div class="weapon-card">
                     <button class="skill-edit" onclick="openWeaponEditor(${w.id})" title="Редактировать">✏</button>
                     <div class="weapon-name">${escapeHtml(w.name)}</div>
-                    <div class="weapon-drum" onclick="openDrum(${w.id})" title="Открыть">${weaponVisual(w, 96)}</div>
-                    <div class="weapon-loaded">Патронов: ${loaded}/${w.chambers}</div>
+                    ${isMelee
+                        ? `<div class="weapon-melee-icon">${atkIcon}</div>`
+                        : `<div class="weapon-drum" onclick="openDrum(${w.id})" title="Открыть">${weaponVisual(w, 96)}</div>
+                           <div class="weapon-loaded">Патронов: ${loaded}/${w.chambers}</div>`}
+                    ${hasDmg ? `<div class="weapon-dmg">${atkIcon} ${escapeHtml(w.damage)}${w.atkBonus ? ' · атк ' + escapeHtml(w.atkBonus) : ''}</div>` : ''}
                     ${w.lastShot ? `<div class="weapon-lastshot">${escapeHtml(w.lastShot)}</div>` : ''}
                     <div class="weapon-actions">
-                        <button onclick="quickFire(${w.id})">🎯</button>
-                        ${w.feedType === 'drum' ? `<button class="secondary" onclick="spinWeapon(${w.id})">🔄</button>` : ''}
-                        ${w.feedType === 'magazine' ? `<button onclick="burstFire(${w.id})" title="Очередь ×${w.burst || 3}">🔥</button>` : ''}
-                        <button class="secondary" onclick="openDrum(${w.id})">🔍 Открыть</button>
+                        ${canAttack ? `<button onclick="weaponAttack(${w.id})" title="Бросок атаки + урон">${atkIcon} Атака</button>` : ''}
+                        ${!isMelee ? `<button class="secondary" onclick="quickFire(${w.id})" title="Выстрел">🎯</button>` : ''}
+                        ${!isMelee && w.feedType === 'drum' ? `<button class="secondary" onclick="spinWeapon(${w.id})">🔄</button>` : ''}
+                        ${!isMelee && w.feedType === 'magazine' ? `<button class="secondary" onclick="burstFire(${w.id})" title="Очередь ×${w.burst || 3}">🔥</button>` : ''}
+                        ${!isMelee ? `<button class="secondary" onclick="openDrum(${w.id})">🔍 Открыть</button>` : ''}
                     </div>
                 </div>`;
             }).join('');
@@ -3214,7 +3271,9 @@
                 if (e.type === 'roll') {
                     const cls = e.crit === 'crit' ? 'roll-crit' : e.crit === 'fumble' ? 'roll-fumble' : '';
                     const tag = (e.mode === 'adv' ? ' (преим.)' : e.mode === 'dis' ? ' (помеха)' : '');
-                    return `<div class="log-entry log-roll ${cls}"><span class="log-round">🎲 ${escapeHtml(e.expr)}${tag}</span> ${escapeHtml(e.parts)} = <b>${e.total}</b></div>`;
+                    const icon = e.icon || '🎲';
+                    const tail = (e.total !== undefined && e.total !== null) ? ` = <b>${e.total}</b>` : '';
+                    return `<div class="log-entry log-roll ${cls}"><span class="log-round">${escapeHtml(icon)} ${escapeHtml(e.expr)}${tag}</span> ${escapeHtml(e.parts)}${tail}</div>`;
                 }
                 const parts = slotNames.map(c => {
                     const a = e.actions[c] || [];
@@ -4307,6 +4366,43 @@
             getLog().push({ type: 'roll', round: currentRound, expr: r.expr, total: r.total, parts: r.parts, crit: r.crit, mode: r.mode });
             saveData();
             renderLog();
+        }
+
+        // ---------- Атака оружием (бросок + анимация) ----------
+        const ATK_META = { melee: { icon: '⚔️' }, ranged: { icon: '🏹' }, spell: { icon: '🔥' } };
+        function normBonus(b) {
+            b = (b || '').trim();
+            if (!b) return '';
+            return (b[0] === '+' || b[0] === '-') ? b : '+' + b;
+        }
+        function weaponAttack(id) {
+            const w = getWeapons().find(x => x.id === id);
+            if (!w) return;
+            const type = ATK_META[w.atkType] ? w.atkType : 'melee';
+            playAttackAnim(type);
+            const atk = rollDice('1d20' + normBonus(w.atkBonus), diceMode);
+            const dmgExpr = (w.damage || '').trim();
+            const dmg = dmgExpr ? rollDice(dmgExpr, 'normal') : null;
+            const partsArr = [`атака ${atk.parts} = ${atk.total}`];
+            if (dmg && dmg.ok) partsArr.push(`урон ${dmg.parts} = ${dmg.total}`);
+            else if (dmgExpr) partsArr.push('урон: ?');
+            getLog().push({
+                type: 'roll', round: currentRound, icon: ATK_META[type].icon,
+                expr: w.name, parts: partsArr.join(' · '), crit: atk.crit, mode: atk.mode
+            });
+            saveData();
+            renderLog();
+        }
+        function playAttackAnim(type) {
+            const layer = document.getElementById('fxLayer');
+            if (!layer) return;
+            const map = { melee: '⚔️', ranged: '🏹', spell: '🔥' };
+            const t = map[type] ? type : 'melee';
+            const el = document.createElement('div');
+            el.className = 'fx-emoji fx-' + t;
+            el.textContent = map[t];
+            layer.appendChild(el);
+            setTimeout(() => el.remove(), 900);
         }
 
         // ---------- Мобильные вкладки ----------
