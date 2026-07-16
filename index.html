@@ -169,6 +169,15 @@
         .dice-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .dice-head span { font-weight: bold; color: #ffcccc; font-size: 16px; }
         .dice-head button { padding: 4px 10px; }
+        .dice-mode { display: flex; gap: 6px; margin-bottom: 12px; }
+        .dice-mode button {
+            flex: 1; padding: 10px 6px; font-size: 13px;
+            background: #4a4a4a; color: #cfc3c3; font-weight: 600;
+        }
+        .dice-mode button[data-mode="adv"].active { background: #4a7a4a; color: #fff; }
+        .dice-mode button[data-mode="dis"].active { background: #883333; color: #fff; }
+        .dice-mode button[data-mode="normal"].active { background: var(--app-accent, #a85555); color: #fff; }
+        .dice-modetag { color: #ffcc88; font-weight: 600; }
         .dice-quick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
         .dice-quick button { flex: 1; min-width: 56px; padding: 12px 6px; font-size: 15px; }
         .dice-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -999,6 +1008,11 @@
         <div class="dice-backdrop" onclick="toggleDice(false)"></div>
         <div class="dice-panel">
             <div class="dice-head"><span>🎲 Броски</span><button class="secondary" onclick="toggleDice(false)">✕</button></div>
+            <div class="dice-mode">
+                <button data-mode="dis" onclick="setDiceMode('dis')">🔻 Помеха</button>
+                <button data-mode="normal" class="active" onclick="setDiceMode('normal')">Обычный</button>
+                <button data-mode="adv" onclick="setDiceMode('adv')">🔺 Преим.</button>
+            </div>
             <div class="dice-quick">
                 <button class="secondary" onclick="quickRoll(4)">d4</button>
                 <button class="secondary" onclick="quickRoll(6)">d6</button>
@@ -3104,7 +3118,8 @@
             el.innerHTML = entries.slice().reverse().map(e => {
                 if (e.type === 'roll') {
                     const cls = e.crit === 'crit' ? 'roll-crit' : e.crit === 'fumble' ? 'roll-fumble' : '';
-                    return `<div class="log-entry log-roll ${cls}"><span class="log-round">🎲 ${escapeHtml(e.expr)}</span> ${escapeHtml(e.parts)} = <b>${e.total}</b></div>`;
+                    const tag = (e.mode === 'adv' ? ' (преим.)' : e.mode === 'dis' ? ' (помеха)' : '');
+                    return `<div class="log-entry log-roll ${cls}"><span class="log-round">🎲 ${escapeHtml(e.expr)}${tag}</span> ${escapeHtml(e.parts)} = <b>${e.total}</b></div>`;
                 }
                 const parts = slotNames.map(c => {
                     const a = e.actions[c] || [];
@@ -3816,7 +3831,9 @@
         }
         // ---------- Дайс-роллер ----------
         // Парсит выражение вида XdY±Z (можно несколько слагаемых: 2d6+1d4+3, 1d20-1).
-        function rollDice(input) {
+        function rollDice(input, mode) {
+            mode = mode || 'normal';
+            const d = f => 1 + Math.floor(Math.random() * f);
             const clean = (input || '').replace(/\s+/g, '').toLowerCase();
             if (!clean) return { ok: false };
             const terms = clean.match(/[+-]?[^+-]+/g);
@@ -3833,9 +3850,17 @@
                     if (!n || !faces || n > 100 || faces > 1000) return { ok: false };
                     const rolls = [];
                     for (let i = 0; i < n; i++) {
-                        const r = 1 + Math.floor(Math.random() * faces);
-                        rolls.push(r); total += sign * r;
-                        if (faces === 20) d20s.push(r);
+                        if (faces === 20 && mode !== 'normal') {
+                            // преимущество/помеха: бросаем 2d20, оставляем больший/меньший
+                            const a = d(20), b = d(20);
+                            const kept = mode === 'adv' ? Math.max(a, b) : Math.min(a, b);
+                            total += sign * kept; d20s.push(kept);
+                            rolls.push(`${kept}⟨${a},${b}⟩`);
+                        } else {
+                            const r = d(faces);
+                            total += sign * r; if (faces === 20) d20s.push(r);
+                            rolls.push(String(r));
+                        }
                     }
                     parts.push((sign < 0 ? '−' : '') + n + 'd' + faces + '[' + rolls.join(',') + ']');
                 } else if (/^\d+$/.test(body)) {
@@ -3845,7 +3870,14 @@
             }
             let crit = null;
             if (d20s.includes(20)) crit = 'crit'; else if (d20s.includes(1)) crit = 'fumble';
-            return { ok: true, total, expr: clean, parts: parts.join(' '), crit };
+            return { ok: true, total, expr: clean, parts: parts.join(' '), crit, mode };
+        }
+        let diceMode = 'normal';   // 'normal' | 'adv' (преимущество) | 'dis' (помеха)
+        const DICE_MODE_LABEL = { adv: 'преим.', dis: 'помеха' };
+        function setDiceMode(m) {
+            diceMode = m;
+            document.querySelectorAll('.dice-mode button').forEach(b =>
+                b.classList.toggle('active', b.dataset.mode === m));
         }
         function toggleDice(force) {
             const s = document.getElementById('diceSheet');
@@ -3856,12 +3888,13 @@
         function quickRoll(faces) { performRoll('1d' + faces); }
         function doRoll() { performRoll(document.getElementById('diceExpr').value); }
         function performRoll(input) {
-            const r = rollDice(input);
+            const r = rollDice(input, diceMode);
             const out = document.getElementById('diceResult');
             if (!r.ok) { out.innerHTML = '<span class="dice-err">Не понял выражение. Примеры: 1d20+5, 3d6, 2d8−1</span>'; return; }
             const cls = r.crit === 'crit' ? 'roll-crit' : r.crit === 'fumble' ? 'roll-fumble' : '';
-            out.innerHTML = `<div class="dice-out ${cls}"><span class="dice-total">${r.total}</span><span class="dice-parts">${escapeHtml(r.expr)} → ${escapeHtml(r.parts)}</span></div>`;
-            getLog().push({ type: 'roll', round: currentRound, expr: r.expr, total: r.total, parts: r.parts, crit: r.crit });
+            const modeTag = DICE_MODE_LABEL[r.mode] ? ` <span class="dice-modetag">(${DICE_MODE_LABEL[r.mode]})</span>` : '';
+            out.innerHTML = `<div class="dice-out ${cls}"><span class="dice-total">${r.total}</span><span class="dice-parts">${escapeHtml(r.expr)}${modeTag} → ${escapeHtml(r.parts)}</span></div>`;
+            getLog().push({ type: 'roll', round: currentRound, expr: r.expr, total: r.total, parts: r.parts, crit: r.crit, mode: r.mode });
             saveData();
             renderLog();
         }
