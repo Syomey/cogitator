@@ -225,6 +225,7 @@
         .exhaust-widget {
             display: inline-flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 6px;
             padding: 4px 10px;
             background: #4a4a4a;
@@ -238,10 +239,11 @@
             font-weight: bold;
         }
         .exhaust-widget button {
-            width: 26px;
+            min-width: 26px;
             height: 26px;
-            padding: 0;
-            font-size: 16px;
+            padding: 0 7px;
+            font-size: 15px;
+            white-space: nowrap;
             background: #6b5555;
         }
         .exhaust-widget button:hover { background: #805555; }
