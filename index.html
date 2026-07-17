@@ -912,6 +912,14 @@
         .ds-abil, .ds-skill { background: #2b2b2b; border: 1px solid #4a4444; border-radius: 5px; padding: 3px 8px; font-size: 12px; }
         .ds-abil b, .ds-skill b { color: #ffcc88; }
         .ds-abil.save { border-color: #7a8a5a; }
+        .ds-edit { margin-top: 6px; }
+        .ds-esub { font-size: 12px; color: #ffcccc; font-weight: 600; margin: 12px 0 6px; }
+        .ds-egrid { display: flex; flex-wrap: wrap; gap: 8px; }
+        .ds-efield { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: #bbb; }
+        .ds-efield input { width: 74px; padding: 6px; background: #2b2b2b; color: #fff; border: 1px solid #5a5a5a; border-radius: 4px; }
+        .ds-erow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+        .ds-erow input { padding: 6px; background: #2b2b2b; color: #fff; border: 1px solid #5a5a5a; border-radius: 4px; min-width: 0; }
+        .ds-erow input:first-child { flex: 1; }
         .ds-skill.prof { border-color: #6a8a6a; }
         .ds-skill.exp { border-color: #8a7a4a; background: #33301f; }
 
@@ -3192,10 +3200,12 @@
             el.style.display = showDossier ? '' : 'none';
             if (!showDossier) { el.innerHTML = ''; return; }
             const sh = charSheet[activeCharacterId];
+            const editBtn = `<button class="secondary" style="font-size:12px;" onclick="toggleDossierEdit()">${dossierEdit ? '✓ Готово' : '✏ Править'}</button>`;
             let html = '<div class="panel-row" style="justify-content:space-between; align-items:center;">' +
-                '<span class="panel-title">📋 Досье</span></div>';
+                '<span class="panel-title">📋 Досье</span>' + editBtn + '</div>';
+            if (dossierEdit) { html += renderDossierEditor(sh || {}); el.innerHTML = html; return; }
             if (!sh || (!sh.combat && !(sh.attacks && sh.attacks.length) && !(sh.abilities && sh.abilities.length))) {
-                html += '<div class="log-empty">Нет данных. Импортируй персонажа из LSS (⚙ Модули → Данные) — боевая сводка, атаки и характеристики появятся здесь.</div>';
+                html += '<div class="log-empty">Нет данных. Импортируй персонажа из LSS (⚙ Модули → Данные), или нажми «✏ Править» и заполни вручную.</div>';
                 el.innerHTML = html;
                 return;
             }
@@ -3233,6 +3243,80 @@
             if (!charSheet[id]) charSheet[id] = {};
             charSheet[id].inspiration = !charSheet[id].inspiration;
             saveData(); renderDossier();
+        }
+        // ---------- Редактирование досье (без импорта) ----------
+        let dossierEdit = false;
+        function toggleDossierEdit() { dossierEdit = !dossierEdit; if (!dossierEdit) saveData(); renderDossier(); }
+        function ensureSheet() { const id = activeCharacterId; if (!charSheet[id]) charSheet[id] = {}; return charSheet[id]; }
+        function dsNumField(label, field, val) {
+            return `<label class="ds-efield"><span>${label}</span><input type="number" value="${val != null ? val : 0}" oninput="dsSetCombat('${field}',this.value)"></label>`;
+        }
+        function dsSetCombat(field, value) {
+            const sh = ensureSheet();
+            if (!sh.combat) sh.combat = { ac: 10, initiative: 0, speed: 30, passive: 10, pb: 2 };
+            sh.combat[field] = parseInt(value) || 0;
+            saveData();
+        }
+        function dsAddAttack() {
+            const sh = ensureSheet();
+            if (!sh.attacks) sh.attacks = [];
+            sh.attacks.push({ name: 'Атака', mod: '+0', dmg: '1d6' });
+            saveData(); renderDossier();
+        }
+        function dsDelAttack(i) {
+            const sh = charSheet[activeCharacterId];
+            if (!sh || !sh.attacks) return;
+            sh.attacks.splice(i, 1); saveData(); renderDossier();
+        }
+        function dsSetAttack(i, field, value) {
+            const sh = charSheet[activeCharacterId];
+            if (!sh || !sh.attacks || !sh.attacks[i]) return;
+            sh.attacks[i][field] = value; saveData();
+        }
+        function dsInitAbilities() {
+            const sh = ensureSheet();
+            sh.abilities = SHEET_ABILS.map(([k, label]) => ({ k, label, score: 10, mod: 0, save: 0, saveProf: false }));
+            saveData(); renderDossier();
+        }
+        function dsSetAbilScore(i, value) {
+            const sh = charSheet[activeCharacterId];
+            const a = sh && sh.abilities && sh.abilities[i];
+            if (!a) return;
+            a.score = parseInt(value) || 0;
+            a.mod = abilityMod(a.score);
+            saveData();
+        }
+        function renderDossierEditor(sh) {
+            const c = sh.combat || {};
+            let h = '<div class="ds-edit">';
+            h += '<div class="ds-esub">Боевая сводка</div><div class="ds-egrid">'
+                + dsNumField('AC', 'ac', c.ac)
+                + dsNumField('Иниц', 'initiative', c.initiative)
+                + dsNumField('Скор', 'speed', c.speed)
+                + dsNumField('Пассивка', 'passive', c.passive)
+                + dsNumField('Бонус маст.', 'pb', c.pb)
+                + '</div>';
+            h += `<button class="ds-insp ${sh.inspiration ? 'on' : ''}" onclick="toggleInspiration()" style="margin-top:8px;">⭐ Вдохновение</button>`;
+            h += '<div class="ds-esub">Атаки (кликабельны в обычном режиме)</div>';
+            (sh.attacks || []).forEach((a, i) => {
+                h += `<div class="ds-erow">
+                    <input value="${escapeHtml(a.name || '')}" placeholder="Название" oninput="dsSetAttack(${i},'name',this.value)">
+                    <input value="${escapeHtml(a.mod || '')}" placeholder="попад." style="width:64px" oninput="dsSetAttack(${i},'mod',this.value)">
+                    <input value="${escapeHtml(a.dmg || '')}" placeholder="1d8+3" style="width:90px" oninput="dsSetAttack(${i},'dmg',this.value)">
+                    <button class="option-del" onclick="dsDelAttack(${i})" title="Удалить">✕</button>
+                </div>`;
+            });
+            h += '<button class="secondary" style="font-size:12px; margin-top:4px;" onclick="dsAddAttack()">+ атака</button>';
+            if (sh.abilities && sh.abilities.length) {
+                h += '<div class="ds-esub">Характеристики (значение → модификатор авто)</div><div class="ds-egrid">';
+                h += sh.abilities.map((a, i) =>
+                    `<label class="ds-efield"><span>${a.label} (${sgn(a.mod)})</span><input type="number" value="${a.score}" oninput="dsSetAbilScore(${i},this.value)"></label>`).join('');
+                h += '</div>';
+            } else {
+                h += '<div class="ds-esub">Характеристики</div><button class="secondary" style="font-size:12px;" onclick="dsInitAbilities()">+ создать 6 характеристик</button>';
+            }
+            h += '</div>';
+            return h;
         }
 
         function renderHp() {
