@@ -3219,7 +3219,7 @@
                         + `<span class="ds-stat" title="Пассивная Внимательность">👁 <b>${c.passive}</b></span>`
                         + `<span class="ds-stat" title="Бонус мастерства">🎯 <b>${sgn(c.pb)}</b></span>`;
                 }
-                html += `<button class="ds-insp ${sh.inspiration ? 'on' : ''}" onclick="toggleInspiration()" title="Вдохновение">⭐ Вдохновение</button>`;
+                html += inspBtn();
                 html += '</div>';
             }
             if (sh.attacks && sh.attacks.length) {
@@ -3238,11 +3238,13 @@
             }
             el.innerHTML = html;
         }
-        function toggleInspiration() {
-            const id = activeCharacterId;
-            if (!charSheet[id]) charSheet[id] = {};
-            charSheet[id].inspiration = !charSheet[id].inspiration;
-            saveData(); renderDossier();
+        // Вдохновение — стакаемый счётчик (легаси boolean true трактуем как 1)
+        function getInsp() { const sh = charSheet[activeCharacterId]; const v = sh && sh.inspiration; return v === true ? 1 : (Number(v) || 0); }
+        function setInsp(n) { const sh = ensureSheet(); sh.inspiration = Math.max(0, Math.floor(n) || 0); saveData(); renderDossier(); }
+        function addInsp(d) { setInsp(getInsp() + d); }
+        function inspBtn(extraStyle) {
+            const n = getInsp();
+            return `<button class="ds-insp ${n > 0 ? 'on' : ''}" onclick="addInsp(1)" oncontextmenu="addInsp(-1);return false;" title="ЛКМ +1 · ПКМ −1"${extraStyle ? ' style="' + extraStyle + '"' : ''}>⭐ Вдохновение${n > 0 ? ' ×' + n : ''}</button>`;
         }
         // ---------- Редактирование досье (без импорта) ----------
         let dossierEdit = false;
@@ -3296,7 +3298,7 @@
                 + dsNumField('Пассивка', 'passive', c.passive)
                 + dsNumField('Бонус маст.', 'pb', c.pb)
                 + '</div>';
-            h += `<button class="ds-insp ${sh.inspiration ? 'on' : ''}" onclick="toggleInspiration()" style="margin-top:8px;">⭐ Вдохновение</button>`;
+            h += inspBtn('margin-top:8px;');
             h += '<div class="ds-esub">Атаки (кликабельны в обычном режиме)</div>';
             (sh.attacks || []).forEach((a, i) => {
                 h += `<div class="ds-erow">
@@ -4571,7 +4573,7 @@
         }
         // ---------- Вдохновение = переброс последнего броска ----------
         let lastRoll = null, rerollTimer = null;
-        function hasInspiration() { const sh = charSheet[activeCharacterId]; return !!(sh && sh.inspiration); }
+        function hasInspiration() { return getInsp() > 0; }
         function offerReroll(redo) {
             lastRoll = redo;
             const pill = document.getElementById('rerollPill');
@@ -4588,8 +4590,7 @@
             const pill = document.getElementById('rerollPill');
             if (pill) pill.classList.remove('show');
             if (!lastRoll || !hasInspiration()) return;
-            charSheet[activeCharacterId].inspiration = false;  // тратим вдохновение
-            renderDossier();
+            addInsp(-1);  // тратим одно вдохновение
             const fn = lastRoll; lastRoll = null;
             fn();  // повтор броска; вдохновения уже нет — кнопка больше не всплывёт
         }
