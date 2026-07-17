@@ -235,6 +235,16 @@
         }
         .fx-roll.roll-crit { border-color: #4a7a4a; color: #8fe08f; }
         .fx-roll.roll-fumble { border-color: #883333; color: #ff8888; }
+        /* кнопка переброса по вдохновению */
+        .reroll-pill {
+            position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%) translateY(20px);
+            z-index: 12; background: #7a5a2a; color: #fff; font-weight: 600; font-size: 14px;
+            padding: 10px 18px; border-radius: 20px; box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+            opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+        }
+        .reroll-pill:hover { background: #8a6a35; }
+        .reroll-pill.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+        @media (max-width: 820px) { .reroll-pill { bottom: calc(env(safe-area-inset-bottom, 0px) + 160px); } }
         @keyframes fxRollPop {
             0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.7); }
             15%  { opacity: 1; transform: translate(-50%,-50%) scale(1.05); }
@@ -1072,6 +1082,9 @@
 
     <!-- Слой боевых анимаций (удар/выстрел/каст) -->
     <div class="fx-layer" id="fxLayer" aria-hidden="true"></div>
+
+    <!-- Переброс по вдохновению (всплывает после броска, если есть ⭐) -->
+    <button class="reroll-pill" id="rerollPill" onclick="doReroll()">⭐ Переброс (вдохновение)</button>
 
     <!-- Дайс-роллер: плавающая кнопка + выезжающая снизу панель -->
     <button class="dice-fab" id="diceFab" onclick="toggleDice()" title="Бросить кубы">🎲</button>
@@ -4388,6 +4401,7 @@
             getLog().push({ type: 'roll', round: currentRound, expr: r.expr, total: r.total, parts: r.parts, crit: r.crit, mode: r.mode });
             saveData();
             renderLog();
+            offerReroll(() => performRoll(input));
         }
 
         // ---------- Атака оружием (бросок + анимация) ----------
@@ -4415,6 +4429,7 @@
             flashRoll(`${w.name}: атк ${atk.total}${dmg && dmg.ok ? ' · урон ' + dmg.total : ''}`, atk.crit);
             saveData();
             renderLog();
+            offerReroll(() => weaponAttack(id));
         }
         function playAttackAnim(type) {
             const layer = document.getElementById('fxLayer');
@@ -4444,6 +4459,7 @@
             flashRoll(`${label}: ${r.total}`, r.crit);
             saveData();
             renderLog();
+            offerReroll(() => rollCheck(label, mod, icon));
         }
         function rollAbil(i) {
             const sh = charSheet[activeCharacterId]; const a = sh && sh.abilities && sh.abilities[i];
@@ -4467,6 +4483,31 @@
             flashRoll(`${a.name}: атк ${atk.total}${dmg && dmg.ok ? ' · урон ' + dmg.total : ''}`, atk.crit);
             saveData();
             renderLog();
+            offerReroll(() => dossierAttack(i));
+        }
+        // ---------- Вдохновение = переброс последнего броска ----------
+        let lastRoll = null, rerollTimer = null;
+        function hasInspiration() { const sh = charSheet[activeCharacterId]; return !!(sh && sh.inspiration); }
+        function offerReroll(redo) {
+            lastRoll = redo;
+            const pill = document.getElementById('rerollPill');
+            if (!pill) return;
+            if (hasInspiration()) {
+                pill.classList.add('show');
+                clearTimeout(rerollTimer);
+                rerollTimer = setTimeout(() => pill.classList.remove('show'), 6000);
+            } else {
+                pill.classList.remove('show');
+            }
+        }
+        function doReroll() {
+            const pill = document.getElementById('rerollPill');
+            if (pill) pill.classList.remove('show');
+            if (!lastRoll || !hasInspiration()) return;
+            charSheet[activeCharacterId].inspiration = false;  // тратим вдохновение
+            renderDossier();
+            const fn = lastRoll; lastRoll = null;
+            fn();  // повтор броска; вдохновения уже нет — кнопка больше не всплывёт
         }
 
         // ---------- Мобильные вкладки ----------
